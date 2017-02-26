@@ -50,14 +50,14 @@ A chaque état HAUT (état 1) du clock (SCK), les états du MOSI (Master-->Slave
 ###Requêtes
 Parmi les demandes que le Master peut faire au Slave on compte:
 
-<CENTER>
+
 |Demande|Fonction utilisée pour cette demande|Bits envoyés depuis le Master au Slave pour la demande (MOSI)|Réponse du Slave (MISO)|
 |:---|---|:---:|---|
 |L'état des boutons|void getActualButtonStates()|0x01 (00000001)| Selon l'état des boutons|
 |L'état du joystick|void getActualJoystickStates()|0x02 (00000010)|  Selon l'état du joystick|
 |Test de la communication|bool communicationTest()|0x03 (00000011)|  0xAA (10101010)|
 |Activation d'interrupt|void activateInterrupt(...)|0x04 (00000100)|  Si interrupt  activé: 0x01 (00000001), si interrupt désactivé 0x00 (00000000)|
-</CENTER>
+
 
 
 > **Note:**
