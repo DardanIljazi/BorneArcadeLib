@@ -25,7 +25,7 @@ Le fonctionnement général de la librairie est le suivant:
 
  1. Master --(DEMANDE)-->SLAVE
  2. Master --(ENVOIE SANS DONNÉES)--> SLAVE
-	 3. Master<--(REPONSE A LA DEMANDE)-- SLAVE
+     Master<--(REPONSE A LA DEMANDE)-- SLAVE
 
 > **Note:**
 > A la première demande du Master, le Slave ne répond rien
@@ -36,6 +36,7 @@ Parmi les demandes que le Master peut faire au Slave on compte:
 
  1. L'état actuel des boutons (tel ou tel bouton est-il appuyé ?)
  2. L'état actuel du joystick (est-ce que le joystick est contre le haut, gauche bas droite ? )
+ 3. L'activation du mode interrupt
  3. *Un test de communication (utilisé seulement à l'initialisation de la librairie pour savoir si le Master et le Slave communiquent bien*
 
 Fonctionnement et fonctions
@@ -50,16 +51,18 @@ A chaque état HAUT (état 1) du clock (SCK), les états du MOSI (Master-->Slave
 Parmi les demandes que le Master peut faire au Slave on compte:
 
 <CENTER>
-|Demande|Fonction utilisée pour cette demande|Bits envoyés depuis le Master au Slave pour la demande (MOSI)|Réponse du Slave (MISO)
+|Demande|Fonction utilisée pour cette demande|Bits envoyés depuis le Master au Slave pour la demande (MOSI)|Réponse du Slave (MISO)|
 |:---|---|:---:|---|
-|L'état des boutons|void getActualButtonStates()|0x01 (00000001)| Selon l'état des boutons
-|L'état du joystick|void getActualJoystickStates()|0x02 (00000010)|  Selon l'état du joystick
-|Test de la communication|bool communicationTest()|0x03 (00000011)|  0xAA (10101010) 
+|L'état des boutons|void getActualButtonStates()|0x01 (00000001)| Selon l'état des boutons|
+|L'état du joystick|void getActualJoystickStates()|0x02 (00000010)|  Selon l'état du joystick|
+|Test de la communication|bool communicationTest()|0x03 (00000011)|  0xAA (10101010)|
+|Activation d'interrupt|void activateInterrupt(...)|0x04 (00000100)|  Si interrupt  activé: 0x01 (00000001), si interrupt désactivé 0x00 (00000000)|
 </CENTER>
 
 
 > **Note:**
 > Le test de communication (communicationTest()) est utilisé pour savoir si le slave arrive à répondre 0xAA (10101010) au Master. Si le Master ne reçoit pas cette valeur, cela veut dire qu'il y a un problème de communication entre le Slave et le Master.
+> Concernant l'activation des Interrupts, dès que le Slave reçoit le byte 0x04 (00000100), il active les interrupts si celui-ci était désactivé ou le désactive si celui-ci était activé. Dans le premier cas, il répond au Master par 0x01 (00000001), dans le deuxième 0x00 (00000000)
 
 
 ####État des boutons retourné
@@ -317,7 +320,7 @@ void loop (void)
 }
 ```
 ###Ce que cela implique
-Cela fera certainement entrer le code plusieurs fois dans la condition isStartButtonPressed() car ce dernier renvoi vrai tant que le bouton n'est pas lâché, et même s'il est appuyé et lâché très vite,  il y a un "risque" que la condition isStartButtonPressed() soit entrée plusieurs fois car le loop est très rapide.
+Cela fera certainement entrer le code plusieurs fois dans la condition isStartButtonPressed() car ce dernier renvoi vrai tant que le bouton n'est pas lâché, et même s'il est appuyé et lâché très vite,  il y a un "risque" que la condition isStartButtonPressed() soit entrée plusieurs fois dans la condition car le loop est très rapide et aura été recommencé plusieurs fois.
 
 Pour certains cas, cela ne pose pas de problèmes car cela est voulu, mais il peut arriver qu'on veuille, par exemple, initialiser un jeu une seule fois (au début du jeu et ne plus s'en occuper). Dans ce cas-là, il faudrait rajouter une variable de condition qui devient vrai dès qu'on entre dans la condition pour ne plus y rentrer de nouveau:
 #####Exemple de code (Code 4)
@@ -340,7 +343,7 @@ void loop (void)
 
 
 
-Mais une autre approche existe.
+
 
 ##Autre solution, les interrupts
 
@@ -348,11 +351,131 @@ Mais une autre approche existe.
 Les interrupts, comme son nom l’indique, consiste à interrompre momentanément le programme que l’Arduino exécute pour qu’il effectue un autre travail. Quand cet autre travail est terminé, l’Arduino retourne à l’exécution du programme et reprend à l’endroit exact où il l’avait laissé.
 
 ###Les interrupts dans la librairie
-Les interrupts sont utilisés et sont activés de base dans la librairie. 
-Un interrupt survient lorsque l'état des boutons change sur le Slave. Ce dernier envoie alors un signal au Master pour lui dire que l'état des boutons a changé. Le Master arrête ce qu'il fait et demande alors l'état des boutons au Slave qui le lui retourne.
+Les interrupts peuvent être activés dans la librairie en utilisant la fonction:
+
+```C
+void activateInterrupt(Interrupt interrupt, InterruptMode interrupt_mode);
+```
+
+####Premier argument interrupt
+Le premier argument peut contenir les valeures suivantes:
+
+|Valeur ENUM|Explication|
+|-------------|-------------|
+|EXTERNAL_PIN_INTERRUPT|L'interrupt est activé dès qu'un bouton sur le Slave change d'état (appuie ou relâchement du bouton/joystick)|
+|TIMER_INTERRUPT|Le Master demande l'état des boutons/joystick au Slave toutes les 100ms|
+
+
+> **Petite explication:**
+> L'arduino Master et l'Arduino Slave sont reliés par les pins 13 (SCK), 12 (MISO), 11 (MOSI) et le pin SS (10 de base mais peut être changé sur le Master) et le pin 2 (le pin d'interrupt).
+> 
+> Dans le premier cas, quand EXTERNAL_PIN_INTERRUPT est activé, le Slave change d'état sur le pin 2 (HAUT-BAS, BAS-HAUT) dès qu'un changement d'état des boutons ou du joystick apparaît (par exemple quand un bouton est appuyé ou relâché). Le Master s'aperçoit de ce changement d'état sur le pin 2, arrête ce qu'il était en train de faire et demande l'état des boutons et du joystick au Slave.
+> 
+> Dans le deuxième cas, si TIMER_INTERRUPT est utilisé, le Master arrête ce qu'il fait toutes les 100 ms et demande l'état des boutons au Slave
+
+
+####Deuxième argument interrupt_mode
+Le deuxième argument peut contenir les valeures suivantes:
+
+|Valeur ENUM|Explication|
+|-------------|-------------|
+|NORMAL_INTERRUPT_MODE|Ne fait rien de spécial (est activé de base)|
+|REMAIN_HIGH_UNTIL_NEXTCALL|Garde l'état HAUT (appuyé) des boutons/joystick (même après que ceux-ci soient relâchés) jusqu'à l'appel de la fonction récupérant l'état du bouton en question|
+
+
+> **Petite explication:**
+> L'argument NORMAL_INTERRUPT_MODE ne fait rien de spécial. Celui-ci est activé de base
+> 
+> Concernant l'argument REMAIN_HIGH_UNTIL_NEXTCALL **celui-ci peut être très intéressant**.
+> En effet, quand on appuie sur un bouton, le Master envoie une demande pour avoir l'état des boutons et le Slave lui répond. Mais cela arrive aussi quand le bouton est relâché. C'est-à-dire que si on appuie un bouton et qu'on le relâche très vite et que les fonctions isStartButtonPressed(), isStopButtonPressed() sont appelées plus tard, l'état des boutons apparaîtra comme non appuyé. Imaginons le code suivant:
+
+
+#####Exemple de code
+```C
+// MASTER exemple
+#include "arcadeLib.h"
+
+void setup (void)
+{
+  if(initArcadeLib(MASTER_MODE)){
+    if(communicationTest()){
+      // Communication Ok
+      // Active l'interrupt
+      activateInterrupt(EXTERNAL_PIN_INTERRUPT);
+    }else{
+     // Impossible d'initialiser la communication (erreur)
+    }
+  }else{
+    // Impossible d'initialiser la librairie
+  }
+}
+
+void loop (void)
+{
+  if(isStartButtonPressed()){
+     // On initialise le jeu..
+  }
+  
+  // LONG CALCUL QUI PREND 10 SECONDES A SE FINIR ICI..
+  
+}
+```
+
+Le code ci-dessus active l'interrupt dans le setup et regarde dans le loop si le bouton Start est appuyé et ensuite (pour l'exemple) fait un long calcul qui dure 10 secondes.
+
+Si le logiciel se trouve à l'étape  if(isStartButtonpressed()) et que le bouton est appuyé à ce moment-là, la condition renverra vraie. (voir image ci-dessous):
+
+![Malette Arcade](http://vpictu.re/uploads/6a1efd0f879d725e6208fd4bf8fb0128b8c61eca.png)
+
+Mais imaginons maintenant si le bouton est appuyé et relâché alors que le programme se trouve à l'étape du long calcul qui prend 10 secondes. Quand le loop reviendra sur la condition isStartButtonPressed(), la condition ne sera jamais exécutée car renverra faux (l'état des boutons à ce moment-là sera à l'état bas) comme le montre l'image ci-dessous:
+
+![Malette Arcade](http://vpictu.re/uploads/2ec2f464c6d54c450da6cc68474a15afd6b5ca6c.png)
+
+La solution à ceci est le deuxième argument REMAIN_HIGH_UNTIL_NEXTCALL qui gardera à l'état HAUT tous les boutons appuyés jusqu'à ce que la fonction demandant si ce dernier est appuyé est appelée comme ceci:
+
+#####Exemple de code
+```C
+// MASTER exemple
+#include "arcadeLib.h"
+
+void setup (void)
+{
+  if(initArcadeLib(MASTER_MODE)){
+    if(communicationTest()){
+      // Communication Ok
+      /** REMAIN_HIGH_UNTIL_NEXTCALL rajouté */
+      activateInterrupt(EXTERNAL_PIN_INTERRUPT, REMAIN_HIGH_UNTIL_NEXTCALL);
+    }else{
+     // Impossible d'initialiser la communication (erreur)
+    }
+  }else{
+    // Impossible d'initialiser la librairie
+  }
+}
+
+void loop (void)
+{
+  if(isStartButtonPressed()){
+     // On initialise le jeu..
+  }
+  
+  // LONG CALCUL QUI PREND 10 SECONDES A SE FINIR ICI..
+  
+}
+```
+
+> **Petite explication:**
+>Si le bouton est appuyé et relâché alors que le long calcul de 10 secondes est effectué, l'état du bouton gardera l'état HAUT jusqu'à l'appel de la fonction du bouton correspondant.
+>Par exemple si le bouton start est appuyé pendant le calcul, le isStartButtonPressed() renverra vrai dès qu'il sera appelé. Il se remettra à zéro suite à cela.
+>Si un autre bouton est appuyé (par exemple le bouton 1), l'état de ce bouton sera HAUT jusuq'à l'appel de la fonction isButton1Pressed(). **Si la fonction du bouton appuyé n'est jamais appelée, l'état du bouton restera HAUT tout du long.**
+
+![Malette Arcade](http://vpictu.re/uploads/80550ea182a15e02b39037975329f17f44418a2a.png)
+
+
+####**Les interrupts dans la librairie permettent concrètement d'avoir l'état des boutons dès que celui-ci change sans devoir appeler getActualButtonStates et getActualJoystickStates.**
 
 ####Mais alors il n'y a pas besoin d'utiliser getActualButtonStates et getActualJoystickStates ?
-Oui et non. En fait, il existe beaucoup de fonctions qui utilisent les Interrupts sur l'Arduino. Par exemple, les Serial.print utilisent les Interrupts, le protocole SPI en lui-même utilise les interrupts, le bouton (blanc) Reset sur l'Arduino est un Interrupt en lui-même.
+Oui et non. En fait, il existe beaucoup de fonctions qui utilisent les Interrupts sur l'Arduino. Par exemple, les Serial.print utilisent les Interrupts, le protocole SPI en lui-même utilise les interrupts, l'écran TFT qu'on rattache à l'Arduino (pour afficher du texte/images) utilise lui le protocole SPI (qui utilise les interrupts),  le bouton (blanc) Reset sur l'Arduino est un Interrupt en lui-même..
 
 Ce qu'il faut savoir des interrupts, c'est que s'il y en a déjà un en cours, un autre interrupt ne pourra pas arrêter l'interrupt en cours et si deux interrupts **surviennent en même temps**, le plus important prendra le dessus et sera exécuté.
 Par plus important, on entend celui qui se trouve le plus haut dans la liste suivante:
@@ -371,7 +494,7 @@ Actuellement, le Slave est connecté au Master avec 5 fils: le SCK, le MISO, le 
 
 ####Code avec interrupts
 
-Étant donné que la librairie intègre directement les interrupts sur le pin 2, il est donc tout à fait possible d'éviter d'appeler les fonctions getActualButtonStates() et getActualJoystickStates() comme ceci:
+Étant donné que la librairie intègre les interrupts en appelant la fonction activateInterrupt sur le pin 2, il est donc tout à fait possible d'éviter d'appeler les fonctions getActualButtonStates() et getActualJoystickStates() comme ceci:
 
 #####Exemple de code (Code 5)
 ```C
@@ -384,6 +507,7 @@ void setup (void)
   if(initArcadeLib(MASTER_MODE)){
     if(communicationTest()){
       // Communication Ok
+      activateInterrupt(EXTERNAL_PIN_INTERRUPT);
     }else{
      // Impossible d'initialiser la communication (erreur)
     }
@@ -399,7 +523,7 @@ void loop (void)
   }
 }
 ```
-**Ainsi, dès que le bouton Start est appuyé, la fonction isStartButtonPressed() renverra vraie dès que l'état des boutons sur le Slave aura changé et pas en continu.**
+
 
 > **Attention, à prendre note:**
 > Dans ce cas-là, le Master interroge seulement le Slave lorsque l'état sur le pin Interrupt 2 change (de HAUT à BAS ou de BAS à HAUT).
@@ -468,6 +592,86 @@ void loop() {
 > **Note:**
 > Il est tout à fait possible d'utiliser l'appel à la fonction getActualButtonStates() ou getActualJoystickStates() plus bas dans le code. Il est même **conseillé** des les appeler avant juste qu'on vérifie l'état des boutons.
 
+##Différent Slave Select
+
+Il peut arriver qu'une librairie utiliser le pin 10 pour quelque chose et qu'il ne soit pas possible d'utiliser ce pin pour le Slave Select. Pour cela, il suffit de rajouter le numéro du pin au deuxième argument de la fonction initArcadeLib:
+
+```C
+int initArcadeLib(Mode mode, int SlaveSelectPin);
+```
+
+De base, le pin 10 est utilisé mais si un numéro est fourni au deuxième argument de la fonction initArcadeLib, c'est ce pin qui sera utilisé comme pin SS.
+
+
+##Multiples Slave
+Il peut arriver qu'il y ait d'autres Slave qui soient rattachés au Master. Par exemple l'écran TFT Arduino utilise le protocole SPI (l'écran est un Slave).
+
+Comme on le sait par le protocole SPI, pour communiquer avec un Slave précis, il faut mettre le pin SS de celui-ci en LOW et celui de tous les autres Slave en HIGH.
+
+La librairie met en LOW lorsqu'elle doit parler au Slave mais elle ne sait pas qu'il y a d'autres Slave. Pour lui indiquer ceci, il faut appeler la fonction:
+
+```C
+void addSSPInToDesactivate(int listToPutOnHigh[]);
+```
+
+La fonction attend une liste de pins SS à mettre en HIGH. Il peut y avoir jusqu'à 6 Slave/pins à mettre en état HAUT (pour signaler qu'on ne va pas communiquer avec ces Slaves).
+
+Voici un cas concret de l'utilisation de ceci:
+
+
+```C
+// MASTER exemple
+
+#include "arcadeLib.h"
+#include <TFT.h>
+
+#define CS    10
+#define DC     9
+#define RESET  8
+
+#define SS 5
+
+TFT TFTscreen = TFT(CS, DC, RESET);
+
+int pinToPutHigh[] = {CS}; // liste des pins à mettre en état HIGH
+
+void setup (void)
+{
+
+  if(initArcadeLib(MASTER_MODE, SS)){ // Le pin SS du Master est sur le pin 5 
+    if(communicationTest()){
+      // Communication Ok
+	  
+      addSSPInToDesactivate(pinToPutHigh);
+    }else{
+     // Impossible d'initialiser la communication (erreur)
+    }
+  }else{
+    // Impossible d'initialiser la librairie
+  }
+
+  
+  TFTscreen.begin();
+  TFTscreen.background(0, 0, 0);
+  TFTscreen.stroke(255,255,255);
+  TFTscreen.setTextSize(1.5);
+}
+
+void loop() {
+  getActualButtonStates();
+  
+  TFTscreen.stroke(255,255,255);
+  TFTscreen.text("StartButton: ", 0, 10);
+
+  TFTscreen.text((isStartButtonPressed()) ? "Pressed" : "Not pressed", 80, 10);
+  
+  TFTscreen.stroke(0,0,0);
+  
+  TFTscreen.fill(0, 0, 0);
+  TFTscreen.rect(80, 0, 100, 20);
+}
+
+```
 
 ##Slave
 
@@ -478,16 +682,22 @@ Le seul code dont le Slave a besoin pour fonctionner est le suivant:
 // Slave exemple
 #include "arcadeLib.h"
 
+
+// Those variables are in the Borne_Arcade_Lib.cpp. We use "extern" to say that these variables are declared into an other file
 extern volatile uint8_t lastButtonState;
 extern volatile uint8_t lastJoystickState;
+extern volatile bool    isInterruptActivated;
+
 uint8_t invert = LOW;
 uint8_t actualButtonState = 0x00;
 uint8_t actualJoystickState = 0x00;
 
 void setup() {
+
   if (initArcadeLib(SLAVE_MODE)) {
-  
+    // All is ok
   }
+
   pinMode(2, OUTPUT);
   digitalWrite(2, invert);
 }
@@ -498,21 +708,32 @@ void loop() {
   // Get the joystick pin states
   actualJoystickState = getJoystickPinStates();
 
-  // If there is something different 
+  // If there is something different between last and actual button states
   if (actualButtonState != lastButtonState) {
-    noInterrupts();
+    noInterrupts(); // Use noInterrupts: We don't want this to be interrupted (by SPI communication)
     lastButtonState = actualButtonState;
-    interrupts();
+    interrupts(); // We allow interrupts again
+
+    /* Change the pin state of pin 2 (if it was HIGH it will be LOW, 
+    if it was LOW it will be HIGH) */
+    // This is only done if
     invert = (invert == LOW) ? HIGH : LOW;
-    digitalWriteFast(2, invert);
-  }else if(actualJoystickState != lastJoystickState){
+    if (isInterruptActivated)
+      digitalWriteFast(2, invert);
+
+  } else if (actualJoystickState != lastJoystickState) {
     noInterrupts();
     lastJoystickState = actualJoystickState ;
     interrupts();
+
     invert = (invert == LOW) ? HIGH : LOW;
-    digitalWriteFast(2, invert);
+
+    if (isInterruptActivated)
+      digitalWriteFast(2, invert);
   }
+
 }
+
 ```
 
 ###Fonctions utilisables dans le Slave
@@ -579,5 +800,6 @@ Voici le timing que prennent différentes actions, tant au niveau du Master qu'a
 
 
 
-B. GAUD, Dardan ILJAZI
+Boris GAUDARD, Dardan ILJAZI
 Février 2017
+
